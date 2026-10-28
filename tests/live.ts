@@ -2,12 +2,13 @@
  * Test helpers: a relay on free ports, a fake host on a WebSocket, and a
  * guest on a real SSH connection whose screen output is collected as text.
  */
+import xterm from "@xterm/headless";
 import ssh2 from "ssh2";
 import type { ClientChannel } from "ssh2";
 import { WebSocket } from "ws";
 import { Check } from "typebox/value";
-import { RelayMessageSchema } from "../src/protocol.ts";
-import type { HostMessage, RelayMessage } from "../src/protocol.ts";
+import { PROTOCOL_VERSION, RelayMessageSchema } from "../src/protocol.ts";
+import type { HostMessage, Meta, RelayMessage } from "../src/protocol.ts";
 import { Relay } from "../relay/relay.ts";
 
 const WAIT_MS = 15_000;
@@ -94,7 +95,7 @@ export class FakeHost {
   }
 
   /** Send hello and wait for the join command. */
-  public async hello(host = "jacob", protocol = 1): Promise<Extract<RelayMessage, { type: "ready" }>> {
+  public async hello(host = "jacob", protocol = PROTOCOL_VERSION): Promise<Extract<RelayMessage, { type: "ready" }>> {
     await this.open();
     this.send({ type: "hello", protocol, piVersion: "1.4.0", host });
     return eventually(
@@ -115,15 +116,23 @@ export class FakeHost {
   }
 }
 
-/** A guest connected over SSH with a terminal of the given size. */
+/**
+ * A guest connected over SSH, with a headless xterm as their terminal: it
+ * answers the relay's terminal queries and keeps the screen the guest sees.
+ */
 export class Guest {
   #output = "";
   #ended = false;
   readonly #client = new ssh2.Client();
+  readonly #terminal: xterm.Terminal;
   #channel: ClientChannel | undefined;
 
+  constructor(size: { readonly cols: number; readonly rows: number }) {
+    this.#terminal = new xterm.Terminal({ ...size, allowProposedApi: true });
+  }
+
   public static connect(sshPort: number, token: string, size = { cols: 120, rows: 40 }): Promise<Guest> {
-    const guest = new Guest();
+    const guest = new Guest(size);
     return new Promise((resolve, reject) => {
       guest.#client.on("ready", () => {
         guest.#client.shell({ term: "xterm-256color", ...size }, (err, channel) => {
@@ -132,8 +141,13 @@ export class Guest {
             return;
           }
           guest.#channel = channel;
+          guest.#terminal.onData((data) => {
+            channel.write(data);
+          });
           channel.on("data", (data: Buffer) => {
-            guest.#output += data.toString("utf8");
+            const text = data.toString("utf8");
+            guest.#output += text;
+            guest.#terminal.write(text);
           });
           channel.on("close", () => {
             guest.#ended = true;
@@ -146,8 +160,18 @@ export class Guest {
     });
   }
 
-  /** Everything the guest's terminal received, with escape sequences removed. */
+  /** What the guest's terminal shows right now, one line per row. */
   public get screen(): string {
+    const buffer = this.#terminal.buffer.active;
+    const lines: string[] = [];
+    for (let row = 0; row < this.#terminal.rows; row += 1) {
+      lines.push(buffer.getLine(buffer.viewportY + row)?.translateToString(true) ?? "");
+    }
+    return lines.join("\n");
+  }
+
+  /** Everything the relay ever sent, with escape sequences removed. */
+  public get received(): string {
     return plain(this.#output);
   }
 
@@ -162,20 +186,35 @@ export class Guest {
   public sees(text: string | RegExp): Promise<true> {
     return eventually(
       () => ((typeof text === "string" ? this.screen.includes(text) : text.test(this.screen)) ? true : undefined),
-      () => `guest never saw ${String(text)}; screen:\n${this.screen.slice(-3000)}`
+      () => `guest never saw ${String(text)}; screen:\n${this.screen}`
     );
   }
 
   public waitForEnd(): Promise<true> {
     return eventually(
       () => (this.#ended ? true : undefined),
-      () => `guest's session never closed; screen:\n${this.screen.slice(-2000)}`
+      () => `guest's session never closed; screen:\n${this.screen}`
     );
   }
 
   public close(): void {
     this.#client.end();
+    this.#terminal.dispose();
   }
+}
+
+/** A footer meta message, with overrides. */
+export function meta(overrides: Partial<Meta> = {}): HostMessage {
+  return {
+    type: "meta",
+    cwd: "/home/jacob/dev/shop",
+    cwdLabel: "~/dev/shop",
+    showProvider: false,
+    thinking: "off",
+    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 },
+    autoCompact: true,
+    ...overrides
+  };
 }
 
 export const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };

@@ -4,7 +4,7 @@
  */
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import type { Entry, HostMessage, RelayMessage, SuggestionStatus } from "../src/protocol.ts";
+import type { Entry, HostMessage, Meta, RelayMessage, SuggestionStatus } from "../src/protocol.ts";
 import { isAgentMessage, isAssistantMessage, isToolProgress } from "./messages.ts";
 import type { ToolProgress } from "./messages.ts";
 
@@ -23,12 +23,6 @@ export interface ToolState {
   end?: { readonly isError: boolean; readonly durationMs?: number };
 }
 
-export interface Meta {
-  readonly cwd: string;
-  readonly model: string;
-  readonly thinking: string;
-}
-
 /** What the stream needs from each guest's viewer. */
 export interface Guest {
   readonly name: string;
@@ -37,6 +31,7 @@ export interface Guest {
   tail(): void;
   tool(id: string): void;
   footer(): void;
+  activity(): void;
   suggestionStatus(text: string, status: SuggestionStatus): void;
   end(reason: string): void;
 }
@@ -52,7 +47,9 @@ const resultIds = (entries: readonly ShownEntry[]): string[] => entries.flatMap(
 export class Stream {
   public readonly token: string;
   public readonly host: string;
-  public meta: Meta = { cwd: "", model: "", thinking: "" };
+  public meta: Meta = { cwd: "", cwdLabel: "", showProvider: false, thinking: "off", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 }, autoCompact: true };
+  /** Whether the host's agent is working. */
+  public working = false;
   public entries: ShownEntry[] = [];
   /** The assistant message being streamed, until its entry arrives. */
   public tail: AssistantMessage | undefined;
@@ -79,9 +76,15 @@ export class Stream {
   public apply(update: StreamUpdate): void {
     switch (update.type) {
       case "meta":
-        this.meta = { cwd: update.cwd, model: update.model, thinking: update.thinking };
+        this.meta = update;
         this.#each((guest) => {
           guest.footer();
+        });
+        break;
+      case "activity":
+        this.working = update.working;
+        this.#each((guest) => {
+          guest.activity();
         });
         break;
       case "reset":

@@ -22,7 +22,7 @@ pi sends each streamed message as a whole snapshot rather than as text deltas. A
 
 Guests join with plain `ssh`, which every WSL distribution, Windows 10 and later, and macOS already have. They install nothing, run no downloaded code, and keep their own terminal.
 
-The relay draws for them with the components pi uses for its own transcript: user messages, the model's markdown and thinking, tool calls with the built-in renderers for reads, edits and commands. Each guest gets their own pi-tui screen at their terminal's size. pi's interactive mode itself can't be reused that way. It assumes it owns the process's stdin, stdout and signal handlers, so the relay builds a smaller viewer from the same parts. The cost is that the relay depends on pi's internal UI. Its pi version is pinned, and has to be bumped and rebuilt alongside the hosts' pi. A host on a different version gets a warning when they go live.
+The relay draws for them with the components pi uses for its own transcript: user messages, the model's markdown and thinking, tool calls with the built-in renderers for reads, edits and commands. Each guest gets their own full-screen pi-tui screen at their terminal's size, laid out the way pi lays out its own full-screen mode. pi's footer reads the host's live session, which the relay doesn't have, so the host's pi sends the facts it draws from (directory, branch, token use, context, model) and the relay draws them in pi's format. pi's interactive mode itself can't be reused that way. It assumes it owns the process's stdin, stdout and signal handlers, so the relay builds a smaller viewer from the same parts. The cost is that the relay depends on pi's internal UI. Its pi version is pinned, and has to be bumped and rebuilt alongside the hosts' pi. A host on a different version gets a warning when they go live.
 
 The alternatives each failed one of the requirements:
 
@@ -45,6 +45,6 @@ The relay validates everything a host sends before drawing it, because any host 
 
 ## Our own protocol
 
-The pi project publishes experimental `pi-server`, `pi-protocol` and `pi-client` packages for sessions with several clients attached. pi-live doesn't use them. They target sessions the server itself hosts, not a terminal session that is already running. They have no peer authentication, and they make no compatibility promises. pi-live's protocol is eleven JSON message types, listed with their meaning in `src/protocol.ts`. Each end checks every message it receives against the TypeBox schemas in that file, and a protocol version in the first message lets the relay refuse a host it doesn't understand.
+The pi project publishes experimental `pi-server`, `pi-protocol` and `pi-client` packages for sessions with several clients attached. pi-live doesn't use them. They target sessions the server itself hosts, not a terminal session that is already running. They have no peer authentication, and they make no compatibility promises. pi-live's protocol is twelve JSON message types, listed with their meaning in `src/protocol.ts`. Each end checks every message it receives against the TypeBox schemas in that file, and a protocol version in the first message lets the relay refuse a host it doesn't understand.
 
 For setting it up, see [Deploy the relay to AKS](deploy.md). For using it, see the [README](../README.md).

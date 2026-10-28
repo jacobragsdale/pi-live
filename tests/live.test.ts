@@ -50,7 +50,7 @@ async function goLive(pi: PiRpc): Promise<string> {
 async function join_(pi: PiRpc, token: string, name: string): Promise<Guest> {
   const guest = await Guest.connect(relay.ssh, token);
   open.push(guest);
-  await guest.sees("Your name:");
+  await guest.sees("Type your name");
   guest.type(`${name}\r`);
   await eventually(
     () => (pi.lastStatus("live").includes(name) ? true : undefined),
@@ -70,7 +70,7 @@ await test("/live streams the session to an ssh guest, and /live again ends it",
   const token = await goLive(pi);
   assert.match(pi.lastStatus("live"), /● live.* · nobody watching yet/);
   const bob = await join_(pi, token, "bob");
-  await bob.sees("tester's pi");
+  await bob.sees("watching tester's pi session");
 
   await pi.prompt("Fix the login bug");
   await bob.sees("Fix the login bug");
@@ -131,7 +131,7 @@ await test("guests see tool calls, and secrets are masked before they leave pi",
   await pi.prompt(`Deploy with token ${secret}`);
   await bob.sees("$ true");
   await bob.sees("Deploy with token [REDACTED:github-token]");
-  assert.ok(!bob.screen.includes(secret));
+  assert.ok(!bob.received.includes(secret));
 });
 
 await test("guests see the host's ! commands and their output", async () => {

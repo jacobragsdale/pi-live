@@ -60,13 +60,15 @@ ssh h3kq7x2mvb5rf4tnw6ydacpe@pi-live-ssh.example.corp
 
 The first time, ssh asks whether to trust the relay's host key. Type `yes`. The key's fingerprint is in the relay's log, and should match what ssh shows. Then type your name and press Enter.
 
-| Key                                    | Does                                                                      |
-| -------------------------------------- | ------------------------------------------------------------------------- |
-| Enter                                  | Sends what you typed to the host as a suggestion. Three can wait at once. |
-| `ctrl+o`                               | Expands or collapses tool output.                                         |
-| `ctrl+c`, or `ctrl+d` on an empty line | Leaves the stream.                                                        |
+The stream fills your terminal and is laid out like pi's own full-screen mode: the transcript above, then pi's working indicator, editor box and footer. The footer shows what the host's does: directory and git branch, token use and cost, context, and model.
 
-Scroll back with your terminal's own scrollback.
+| Key                                    | Does                                                                                   |
+| -------------------------------------- | -------------------------------------------------------------------------------------- |
+| Enter                                  | Sends what you typed to the host as a suggestion. Three can wait at once.              |
+| PgUp, PgDn, or the mouse wheel         | Scrolls the transcript. New output keeps it at the bottom unless you have scrolled up. |
+| `ctrl+end`                             | Jumps back to the latest message.                                                      |
+| `ctrl+o`                               | Expands or collapses tool output.                                                      |
+| `ctrl+c`, or `ctrl+d` on an empty line | Leaves the stream.                                                                     |
 
 ## Run a relay on your machine
 
@@ -126,7 +128,8 @@ Pi sends the relay what your terminal shows of the conversation:
 - the model's replies and thinking
 - tool calls and their results, such as file contents and command output
 - compaction and branch summaries, and custom messages extensions display
-- your working directory, model and thinking level
+- what pi's footer shows: your working directory, git branch, session name, token use and cost, context use, model and thinking level
+- whether the agent is working
 
 It never sends the system prompt, tool definitions, or custom messages extensions hide from the transcript. Images are replaced with `[image not shared]`. Every string passes through the secret masking pi-config uses for `/submit-prompt` before it is sent.
 

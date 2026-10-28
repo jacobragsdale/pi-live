@@ -22,6 +22,7 @@ import { parseJson } from "../../src/json.ts";
 import { PROTOCOL_VERSION, RelayMessageSchema } from "../../src/protocol.ts";
 import type { HostMessage, RelayMessage, SuggestionStatus } from "../../src/protocol.ts";
 import { scrub } from "../../src/scrub.ts";
+import { footerMeta, gitBranch } from "./footer.ts";
 import { catchUp } from "./transcript.ts";
 
 const ConfigSchema = Type.Object({ url: Type.Optional(Type.String({ minLength: 1 })) }, { additionalProperties: false });
@@ -152,6 +153,7 @@ export default function live(pi: ExtensionAPI): void {
   /** The latest context this copy of the extension saw; undefined until its session starts. */
   let ctx: ExtensionContext | undefined;
   let attached = false;
+  let branch: string | undefined;
   let syncTimer: NodeJS.Timeout | undefined;
   const tail = new Throttle();
   const tools = new Map<string, Throttle>();
@@ -179,10 +181,23 @@ export default function live(pi: ExtensionAPI): void {
   }
 
   function sendMeta(): void {
+    if (ctx !== undefined && current() !== undefined) {
+      send({ type: "meta", ...footerMeta(ctx, pi.getThinkingLevel(), branch) });
+    }
+  }
+
+  /** Look up the git branch, which the agent may have changed, then resend the footer. */
+  function refreshBranch(): void {
     if (ctx === undefined) {
       return;
     }
-    send({ type: "meta", cwd: ctx.cwd, model: ctx.model === undefined ? "no model" : `${ctx.model.provider}/${ctx.model.id}`, thinking: pi.getThinkingLevel() });
+    gitBranch(ctx.cwd).then(
+      (found) => {
+        branch = found;
+        sendMeta();
+      },
+      () => undefined
+    );
   }
 
   function showState(): void {
@@ -257,6 +272,8 @@ export default function live(pi: ExtensionAPI): void {
     clearInterval(syncTimer);
     syncTimer = setInterval(sync, SYNC_MS);
     sendMeta();
+    refreshBranch();
+    send({ type: "activity", working: !(ctx?.isIdle() ?? true) });
     sync();
     showState();
   }
@@ -422,6 +439,7 @@ export default function live(pi: ExtensionAPI): void {
       sync();
       if (isAssistant) {
         send({ type: "tail", message: null });
+        sendMeta();
       }
     }, 0);
   });
@@ -473,10 +491,21 @@ export default function live(pi: ExtensionAPI): void {
   pi.on("session_compact", (_event, context) => {
     ctx = context;
     sync();
+    sendMeta();
+  });
+  pi.on("session_info_changed", (_event, context) => {
+    ctx = context;
+    sendMeta();
+  });
+  pi.on("agent_start", (_event, context) => {
+    ctx = context;
+    send({ type: "activity", working: true });
   });
   pi.on("agent_settled", (_event, context) => {
     ctx = context;
     sync();
     send({ type: "tail", message: null });
+    send({ type: "activity", working: false });
+    refreshBranch();
   });
 }

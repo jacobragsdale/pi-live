@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
-import { FakeHost, Guest, assistant, eventually, startRelay, user } from "./live.ts";
+import { FakeHost, Guest, assistant, eventually, meta, startRelay, user } from "./live.ts";
 import type { TestRelay } from "./live.ts";
 
 let relay: TestRelay;
@@ -27,7 +27,7 @@ async function host(name = "jacob"): Promise<{ host: FakeHost; token: string; jo
 async function guest(token: string, name = "alice"): Promise<Guest> {
   const joined = await Guest.connect(relay.ssh, token);
   open.push(joined);
-  await joined.sees("Your name:");
+  await joined.sees("Type your name");
   joined.type(`${name}\r`);
   await joined.sees("1 watching");
   return joined;
@@ -41,11 +41,22 @@ await test("a host gets a join command with an unguessable token", async () => {
 
 await test("a guest sees the transcript, the streamed reply, and who is hosting", async () => {
   const { host: fake, token } = await host();
-  fake.send({ type: "meta", cwd: "/home/jacob/dev/shop", model: "github-copilot/claude-haiku-5.5", thinking: "xhigh" });
+  fake.send(
+    meta({
+      gitBranch: "main",
+      model: { provider: "github-copilot", id: "claude-haiku-5.5", reasoning: true },
+      showProvider: true,
+      thinking: "xhigh",
+      usage: { input: 2800, output: 40, cacheRead: 97_000, cacheWrite: 75, cost: 0.0123, cacheHitRate: 97.3 },
+      context: { percent: 12.5, contextWindow: 84_000 }
+    })
+  );
   fake.send({ type: "reset", entries: [{ id: "a", messages: [user("Fix the login bug")] }] });
   const alice = await guest(token);
   await alice.sees("Fix the login bug");
-  await alice.sees("jacob's pi · ~/dev/shop · github-copilot/claude-haiku-5.5 (xhigh)");
+  await alice.sees("~/dev/shop (main)");
+  await alice.sees(/↑2\.8k ↓40 R97k W75 CH97\.3% \$0\.012 12\.5%\/84k \(auto\) +\(github-copilot\) claude-haiku-5\.5 • xhigh/);
+  await alice.sees("● live · jacob's session · 1 watching");
 
   fake.send({ type: "tail", message: assistant([{ type: "text", text: "Looking at the session code" }], 5) });
   await alice.sees("Looking at the session code");
@@ -87,7 +98,7 @@ await test("a guest can have only three suggestions waiting", async () => {
 
 await test("a tool call shows its command, its live output, and its result", async () => {
   const { host: fake, token } = await host();
-  fake.send({ type: "meta", cwd: "/repo", model: "m", thinking: "off" });
+  fake.send(meta({ cwd: "/repo", cwdLabel: "/repo" }));
   fake.send({ type: "reset", entries: [] });
   const alice = await guest(token);
   fake.send({ type: "append", entries: [{ id: "a", messages: [assistant([{ type: "toolCall", id: "call-1", name: "bash", arguments: { command: "npm test" } }], 3, "toolUse")] }] });
@@ -154,7 +165,7 @@ await test("a host on another protocol version is refused", async () => {
   fake.send({ type: "hello", protocol: 99, piVersion: "9.9.9", host: "future" });
   const refusal = await fake.waitFor((m) => m.type === "error", "error");
   assert.equal(refusal.type, "error");
-  assert.match(refusal.message, /protocol 1 and your pi-live speaks 99/);
+  assert.match(refusal.message, /protocol 2 and your pi-live speaks 99/);
   await eventually(
     () => (fake.closed ? true : undefined),
     () => "socket closed"
@@ -166,9 +177,40 @@ await test("an empty name becomes guest-N", async () => {
   fake.send({ type: "reset", entries: [] });
   const joined = await Guest.connect(relay.ssh, token);
   open.push(joined);
-  await joined.sees("Your name:");
+  await joined.sees("Type your name");
   joined.type("\r");
   const guests = await fake.waitFor((m) => m.type === "guests" && m.names.length === 1, "one guest");
   assert.equal(guests.type, "guests");
   assert.match(guests.names[0] ?? "", /^guest-\d+$/);
+});
+
+await test("guests see pi's working indicator while the host's agent runs", async () => {
+  const { host: fake, token } = await host();
+  fake.send({ type: "reset", entries: [] });
+  const alice = await guest(token);
+  fake.send({ type: "activity", working: true });
+  await alice.sees("Working");
+  fake.send({ type: "activity", working: false });
+  await eventually(
+    () => (alice.screen.includes("Working") ? undefined : true),
+    () => `the indicator stayed:\n${alice.screen}`
+  );
+});
+
+await test("a guest scrolls the transcript with PgUp, the mouse wheel, and ctrl+end", async () => {
+  const { host: fake, token } = await host();
+  fake.send({ type: "reset", entries: Array.from({ length: 60 }, (_, i) => ({ id: `e${String(i)}`, messages: [user(`message number ${String(i)}`, i)] })) });
+  const alice = await guest(token);
+  await alice.sees("message number 59");
+  assert.ok(!alice.screen.includes("message number 30"));
+  alice.type("\x1b[5~\x1b[5~"); // PgUp twice
+  await alice.sees(/message number [2-4]\d\b/);
+  assert.ok(!alice.screen.includes("message number 59"));
+  alice.type("\x1b[1;5F"); // ctrl+end
+  await alice.sees("message number 59");
+  alice.type("\x1b[<64;10;10M".repeat(10)); // mouse wheel up
+  await eventually(
+    () => (alice.screen.includes("message number 59") ? undefined : true),
+    () => `the wheel didn't scroll:\n${alice.screen}`
+  );
 });
