@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pi-live
+  labels: { app: pi-live }
+spec:
+  # Streams live in this one process's memory, so a host and their guests must reach the same pod.
+  # Never scale past 1, and replace rather than overlap pods on rollout.
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: pi-live }
+  template:
+    metadata:
+      labels: { app: pi-live }
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000 # lets the node user read the host key Secret
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: relay
+          image: pi-live
+          ports:
+            - { name: http, containerPort: 8080 }
+            - { name: ssh, containerPort: 2222 }
+          envFrom:
+            - configMapRef: { name: pi-live }
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 50m, memory: 192Mi }
+            limits: { memory: 768Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: host-key, mountPath: /etc/pi-live, readOnly: true }
+      volumes:
+        - name: host-key
+          secret:
+            secretName: pi-live-host-key
+            defaultMode: 0440

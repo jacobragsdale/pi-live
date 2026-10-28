@@ -1,0 +1,9 @@
+# Hosts' WebSockets, behind the ingress.
+apiVersion: v1
+kind: Service
+metadata:
+  name: pi-live-http
+spec:
+  selector: { app: pi-live }
+  ports:
+    - { name: http, port: 80, targetPort: http }

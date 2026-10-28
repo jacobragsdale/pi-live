@@ -1,0 +1,15 @@
+# Guests' SSH, on a private IP from the cluster's virtual network. Ingress
+# controllers only carry HTTP, so SSH needs its own TCP load balancer.
+apiVersion: v1
+kind: Service
+metadata:
+  name: pi-live-ssh
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+    # To keep the same IP across re-creates, pin a free one from the subnet:
+    # service.beta.kubernetes.io/azure-load-balancer-ipv4: 10.0.0.50
+spec:
+  type: LoadBalancer
+  selector: { app: pi-live }
+  ports:
+    - { name: ssh, port: 22, targetPort: ssh }

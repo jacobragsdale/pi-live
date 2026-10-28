@@ -1,0 +1,25 @@
+# Edit the values marked CHANGE, then: kubectl apply -k deploy/k8s
+# Create the host key Secret first; see docs/deploy.md.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: pi-live # CHANGE: your namespace
+
+resources:
+  - deployment.yaml
+  - service-http.yaml
+  - service-ssh.yaml
+  - ingress.yaml
+
+images:
+  - name: pi-live
+    newName: myregistry.azurecr.io/pi-live # CHANGE: your registry
+    newTag: "0.1.0"
+
+configMapGenerator:
+  - name: pi-live
+    literals:
+      # What guests type after ssh: the SSH load balancer's DNS name, or its IP until you have one. CHANGE
+      - PI_LIVE_JOIN_HOST=pi-live-ssh.example.corp
+      # The port guests connect to; 22 keeps -p out of the join command.
+      - PI_LIVE_JOIN_PORT=22

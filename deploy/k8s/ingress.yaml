@@ -1,0 +1,21 @@
+# Hosts connect to wss://<host>/host. The relay pings every 20 seconds, which
+# keeps idle connections under common ingress timeouts with no annotations.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: pi-live
+spec:
+  ingressClassName: nginx # CHANGE: from kubectl get ingressclass
+  tls:
+    - hosts: [pi-live.example.corp] # CHANGE
+      secretName: pi-live-tls # CHANGE: the TLS secret, or the one other ingresses here share
+  rules:
+    - host: pi-live.example.corp # CHANGE
+      http:
+        paths:
+          - path: /host
+            pathType: Prefix
+            backend:
+              service:
+                name: pi-live-http
+                port: { name: http }
