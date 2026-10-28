@@ -8,7 +8,9 @@
  * SCRIPTED_TOKENS, JSON such as {"cacheRead": 20000}, sets each reply's
  * input, cacheRead and cacheWrite tokens (default 1000 input). Reply n is
  * timestamped (n - 1) * SCRIPTED_STEP_MS after now, to fake gaps between
- * requests.
+ * requests. SCRIPTED_STREAM_MS streams the final reply as several text deltas
+ * that many milliseconds apart, marked "pending" as real providers mark a
+ * message still streaming.
  */
 import { appendFileSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -25,6 +27,21 @@ const TokensSchema = Type.Object({ input: Type.Optional(Type.Number()), cacheRea
 function usage(usd: number): Usage {
   const { input = 1000, cacheRead = 0, cacheWrite = 0 } = parseJson(TokensSchema, env("SCRIPTED_TOKENS", "{}"), "SCRIPTED_TOKENS");
   return { input, output: 100, cacheRead, cacheWrite, totalTokens: input + cacheRead + cacheWrite + 100, cost: { input: 0, output: usd, cacheRead: 0, cacheWrite: 0, total: usd } };
+}
+
+/** The streamed reply, in the pieces it arrives in. */
+export const STREAMED_PIECES = ["Streaming ", "this reply ", "in pieces, ", "like a real provider ", "does."];
+
+async function streamText(message: AssistantMessage, stream: AssistantMessageEventStream, delayMs: number): Promise<void> {
+  const text = { type: "text" as const, text: "" };
+  const partial: AssistantMessage = { ...message, stopReason: "pending", content: [text] };
+  stream.push({ type: "text_start", contentIndex: 0, partial });
+  for (const piece of STREAMED_PIECES) {
+    await sleep(delayMs);
+    text.text += piece;
+    stream.push({ type: "text_delta", contentIndex: 0, delta: piece, partial });
+  }
+  stream.push({ type: "text_end", contentIndex: 0, content: text.text, partial });
 }
 
 export default function scriptedProvider(pi: ExtensionAPI): void {
@@ -48,10 +65,14 @@ export default function scriptedProvider(pi: ExtensionAPI): void {
     appendFileSync(env("SCRIPTED_LOG", "/dev/null"), `${String(requests)} ${model.id}\n`);
     message.timestamp += (requests - 1) * Number(env("SCRIPTED_STEP_MS", "0"));
     stream.push({ type: "start", partial: message });
+    const streamMs = Number(env("SCRIPTED_STREAM_MS", "0"));
+    if (streamMs > 0 && requests > Number(env("SCRIPTED_TOOL_TURNS", "0"))) {
+      await streamText(message, stream, streamMs);
+    }
     const final: AssistantMessage =
       requests <= Number(env("SCRIPTED_TOOL_TURNS", "0"))
         ? { ...message, stopReason: "toolUse", content: [{ type: "toolCall", id: `call-${String(requests)}`, name: "bash", arguments: { command: "true" } }] }
-        : { ...message, content: [{ type: "text", text: "ok" }] };
+        : { ...message, content: [{ type: "text", text: streamMs > 0 ? STREAMED_PIECES.join("") : "ok" }] };
     final.usage = usage(Number(env("SCRIPTED_COST", "1")));
     stream.push({ type: "done", reason: final.stopReason === "toolUse" ? "toolUse" : "stop", message: final });
     stream.end(final);

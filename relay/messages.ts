@@ -5,7 +5,7 @@
  * ones between releases.
  */
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage, ImageContent, TextContent } from "@earendil-works/pi-ai";
+import type { AssistantMessage, ImageContent, StopReason, TextContent } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { Check } from "typebox/value";
 
@@ -15,7 +15,12 @@ const TextSchema = Type.Object({ type: Type.Literal("text"), text: Type.String()
 const ThinkingSchema = Type.Object({ type: Type.Literal("thinking"), thinking: Type.String(), redacted: Type.Optional(Type.Boolean()) }, loose);
 const ToolCallSchema = Type.Object({ type: Type.Literal("toolCall"), id: Type.String(), name: Type.String(), arguments: Type.Record(Type.String(), Type.Unknown()) }, loose);
 const TextOrString = Type.Union([Type.String(), Type.Array(TextSchema)]);
-const StopReasonSchema = Type.Union(["stop", "length", "toolUse", "error", "aborted"].map((reason) => Type.Literal(reason)));
+/**
+ * Every stop reason pi reports, including "pending" for a message still
+ * streaming. A Record, so the typecheck fails when pi adds or drops one.
+ */
+const STOP_REASONS: Record<StopReason, true> = { pending: true, stop: true, length: true, toolUse: true, error: true, aborted: true, deferred: true };
+const StopReasonSchema = Type.Union(Object.keys(STOP_REASONS).map((reason) => Type.Literal(reason)));
 
 const AssistantSchema = Type.Object(
   {

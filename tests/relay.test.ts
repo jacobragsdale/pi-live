@@ -58,7 +58,7 @@ await test("a guest sees the transcript, the streamed reply, and who is hosting"
   await alice.sees(/↑2\.8k ↓40 R97k W75 CH97\.3% \$0\.012 12\.5%\/84k \(auto\) +\(github-copilot\) claude-haiku-5\.5 • xhigh/);
   await alice.sees("● live · jacob's session · 1 watching");
 
-  fake.send({ type: "tail", message: assistant([{ type: "text", text: "Looking at the session code" }], 5) });
+  fake.send({ type: "tail", message: assistant([{ type: "text", text: "Looking at the session code" }], 5, "pending") });
   await alice.sees("Looking at the session code");
   fake.send({ type: "append", entries: [{ id: "b", messages: [assistant([{ type: "text", text: "Found it: the cookie expires early." }], 5)] }] });
   fake.send({ type: "tail", message: null });
@@ -117,7 +117,7 @@ await test("a tool call shows its command, its live output, and its result", asy
 await test("a guest who joins mid-run catches up on the streamed reply", async () => {
   const { host: fake, token } = await host();
   fake.send({ type: "reset", entries: [{ id: "a", messages: [user("Explain the cache")] }] });
-  fake.send({ type: "tail", message: assistant([{ type: "text", text: "The cache keeps rendered pages" }], 7) });
+  fake.send({ type: "tail", message: assistant([{ type: "text", text: "The cache keeps rendered pages" }], 7, "pending") });
   const bob = await guest(token, "bob");
   await bob.sees("Explain the cache");
   await bob.sees("The cache keeps rendered pages");

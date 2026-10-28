@@ -134,6 +134,19 @@ await test("guests see tool calls, and secrets are masked before they leave pi",
   assert.ok(!bob.received.includes(secret));
 });
 
+await test("guests see a reply stream in as the model writes it", async () => {
+  const pi = startPi({ SCRIPTED_STREAM_MS: "250" });
+  const token = await goLive(pi);
+  const bob = await join_(pi, token, "bob");
+  const from = pi.records.length;
+  const done = pi.prompt("Tell me something");
+  await bob.sees("Streaming this reply");
+  assert.ok(!bob.screen.includes("does."), "the guest saw the reply only once it was finished");
+  assert.ok(!pi.records.slice(from).some((r) => r["type"] === "agent_settled"), "the reply finished before the guest saw any of it");
+  await done;
+  await bob.sees("Streaming this reply in pieces, like a real provider does.");
+});
+
 await test("guests see the host's ! commands and their output", async () => {
   const pi = startPi();
   const token = await goLive(pi);

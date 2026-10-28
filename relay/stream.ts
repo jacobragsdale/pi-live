@@ -40,8 +40,6 @@ export type SuggestResult = "sent" | "too-many";
 
 type StreamUpdate = Exclude<HostMessage, { type: "hello" }>;
 
-const shown = (entries: readonly Entry[]): ShownEntry[] => entries.map((entry) => ({ id: entry.id, messages: entry.messages.filter(isAgentMessage) }));
-
 const resultIds = (entries: readonly ShownEntry[]): string[] => entries.flatMap((entry) => entry.messages.flatMap((message) => (message.role === "toolResult" ? [message.toolCallId] : [])));
 
 export class Stream {
@@ -61,6 +59,8 @@ export class Stream {
   readonly #log: (line: string) => void;
   #nextSuggestion = 0;
   #ended = false;
+  /** What this stream has already logged about, so a broken host doesn't flood the log. */
+  readonly #warned = new Set<string>();
 
   constructor(token: string, host: string, send: (message: RelayMessage) => void, log: (line: string) => void) {
     this.token = token;
@@ -88,14 +88,14 @@ export class Stream {
         });
         break;
       case "reset":
-        this.entries = shown(update.entries);
+        this.entries = this.#shown(update.entries);
         this.#settleTools(this.entries);
         this.#each((guest) => {
           guest.reset();
         });
         break;
       case "append": {
-        const added = shown(update.entries);
+        const added = this.#shown(update.entries);
         this.entries.push(...added);
         this.#settleTools(added);
         const tail = this.tail;
@@ -109,6 +109,9 @@ export class Stream {
       }
       case "tail":
         this.tail = isAssistantMessage(update.message) ? update.message : undefined;
+        if (this.tail === undefined && update.message !== null) {
+          this.#warnOnce("tail", "dropped a streamed message the relay can't read, so guests see it only once it is finished");
+        }
         this.#each((guest) => {
           guest.tail();
         });
@@ -140,6 +143,24 @@ export class Stream {
     this.#each((guest) => {
       guest.tool(update.id);
     });
+  }
+
+  /** The messages of each entry the relay can draw; the rest are dropped, with one log line per stream. */
+  #shown(entries: readonly Entry[]): ShownEntry[] {
+    return entries.map((entry) => {
+      const messages = entry.messages.filter(isAgentMessage);
+      if (messages.length < entry.messages.length) {
+        this.#warnOnce("entry", "dropped transcript messages the relay can't read");
+      }
+      return { id: entry.id, messages };
+    });
+  }
+
+  #warnOnce(kind: string, what: string): void {
+    if (!this.#warned.has(kind)) {
+      this.#warned.add(kind);
+      this.#log(`${this.host}'s stream: ${what} (logged once per stream)`);
+    }
   }
 
   /** Forget the live state of tools whose results are now in the transcript. */
